@@ -1,4 +1,5 @@
-﻿using Telegram.Bot;
+﻿using System.Diagnostics;
+using Telegram.Bot;
 using Telegram.Bot.Requests;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -26,6 +27,13 @@ static class Program
 
         botClient.StartReceiving(Update, Error);
 
+        
+        
+        
+        
+        
+        
+        
         Console.ReadLine();
     }
 
@@ -51,7 +59,9 @@ static class Program
         { ResizeKeyboard = true };
 
     static List<BotCommand> commands = new List<BotCommand>();
-
+    static string eventName = "пустое название, ты не правильно прошелся по боту";
+    static string eventDescription = "пустое описание, ты не правильно прошелся по боту";
+    static string nameAndDescription = $"Мероприятие {eventName} успешно создано!{eventDescription}";
 
     private static Task Error(ITelegramBotClient botClient, Exception ex, CancellationToken token)
     {
@@ -62,8 +72,15 @@ static class Program
     private static async Task Update(ITelegramBotClient botClient, Update update, CancellationToken token)
     {
         var message = update.Message;
-
-
+        
+        
+        
+        // для определения фотки
+        var rd = new Random();
+        var number = rd.NextInt64(0, 8);
+        const string locatioin = @"C:\photos_bot\";
+        var path = $"{locatioin}{number}.png";
+        
         commands.Add(new BotCommand { Command = @"start", Description = @"Стартуем комаровцы" });
         commands.Add(new BotCommand { Command = @"help", Description = @"Макака не знает функций" });
         commands.Add(new BotCommand { Command = @"create", Description = @"Создаем тусу джусу" });
@@ -84,7 +101,7 @@ static class Program
             const string fileName = @"C:\Users\vita2\source\repos\botTG\botTG\logs.txt";
 
             // запись в файл
-            await using (StreamWriter writer = new StreamWriter(fileName, true))
+            await using (var writer = new StreamWriter(fileName, true))
             {
                 await writer.WriteLineAsync(logLine);
             }
@@ -116,34 +133,91 @@ static class Program
                     await botClient.SendTextMessageAsync(message.Chat.Id, "Введите название мероприятия:", replyMarkup: new ForceReplyMarkup(), cancellationToken: token);
                     break;
                 default:
+                    // считываем ответ на название
                     if (message.ReplyToMessage != null
                         && message.ReplyToMessage.Type == MessageType.Text
                         && message.ReplyToMessage.Text == "Введите название мероприятия:")
                     {
-                        string eventName = message.Text ?? throw new InvalidOperationException();
+                        
+                        eventName = message.Text ?? throw new InvalidOperationException();
+                        
+                        await botClient.SendTextMessageAsync(message.Chat.Id, "Теперь укажи краткое описание:",replyMarkup: new ForceReplyMarkup() ,cancellationToken: token);
 
-                        var nameAndText = $"Мероприятие {eventName} успешно создано!";
-                        // Здесь можно сохранить название мероприятия в базу данных или выполнить другие действия с ним.
-                        var rd = new Random();
-                        var number = rd.NextInt64(0, 8);
-                        const string locatioin = @"C:\photos_bot\";
-                        var path = $"{locatioin}{number}.png";
-                        await SendPhoto(tokenAPI, message.Chat.Id, path, nameAndText);
                     }
-                    else
+                    // считываем ответ на описание
+                    else if (message.ReplyToMessage != null
+                        && message.ReplyToMessage.Type == MessageType.Text
+                        && message.ReplyToMessage.Text == "Теперь укажи краткое описание:")
                     {
-                        await botClient.SendTextMessageAsync(chatId: message.Chat.Id, 
-                            "чето блят занесло куда то занесло конечно, я не знаю как ты сюда попал но значит ты тут не правльино оказался", 
-                            cancellationToken: token);
+                        eventDescription = message.Text ?? throw new InvalidOperationException();
+                        
+                        
+                        await botClient.SendTextMessageAsync(message.Chat.Id, "Хочешь вставить свою фотку или выбрать случайную\n" 
+                            ,replyMarkup: GetInlinePhoto() ,cancellationToken: token);
+                        
+                        
+                        
+                        
+                        
                     }
+                    
+                    
                     break;
             }
 
-
             
+
+
                 
             
         }
+        
+        switch (update.CallbackQuery?.Data)
+        {
+            case "own":
+                await botClient.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, "Скинь фотографию",replyMarkup: new ForceReplyMarkup(), cancellationToken: token);
+                
+                
+                
+                
+                break;
+            case "random":
+                await botClient.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, "Сообщение 2", cancellationToken: token);
+                break;
+        }
+        
+        
+        if (message?.ReplyToMessage != null && message.ReplyToMessage.Text == "Скинь фотографию")
+        {
+            if (message.Photo != null && message.Photo.Length > 0)
+            {
+                var photo = message.Photo[^1]; 
+                var photoFile = await botClient.GetFileAsync(photo.FileId, cancellationToken: token); 
+                var photoPath = photoFile.FilePath; 
+
+                var directory = new DirectoryInfo(@"C:\photos_bot\");
+                var filesCount = directory.GetFiles().Length;
+                var photoName = $"{filesCount+1}.png";
+                var photoFullPath = Path.Combine(@"C:\photos_bot\", photoName);
+
+                using (var stream = new FileStream(photoFullPath, FileMode.Create))
+                {
+                    await botClient.DownloadFileAsync(photoPath, stream, cancellationToken: token);
+                }
+
+                var newEvent = new Event(eventName, eventDescription,new InputOnlineFile(photoFullPath));
+                await botClient.SendTextMessageAsync(message.Chat.Id, "Фотография сохранена", cancellationToken: token);
+
+                await SendPhoto(tokenAPI, message.Chat.Id, photoFullPath, newEvent.Title + newEvent.Description);
+            }
+            else
+            {
+                // пользователь не отправил фотографию
+                await botClient.SendTextMessageAsync(message.Chat.Id, "Ты не отправил фотографию", cancellationToken: token);
+            }
+        }
+        
+        
     }
 
 
@@ -172,6 +246,10 @@ static class Program
             Title = title;
             Photo = photo;
         }
+
+        
+        
+        
     }
 
     public class EventManager
@@ -201,6 +279,25 @@ static class Program
         {
             new[] { createEventButton },
             new[] { joinEventButton }
+        });
+
+        return inlineKeyboard;
+    }
+
+    private static InlineKeyboardMarkup GetInlinePhoto()
+    {
+        // Создаем inline-кнопки
+        var ownINLINE = InlineKeyboardButton.WithCallbackData( " Своя\u2705", "own");
+        var randomINLINE = InlineKeyboardButton.WithCallbackData(" Случайная\U0001F3B2", "random");
+        
+        
+
+        // Создаем массив кнопок и добавляем их в inline-клавиатуру
+        var inlineKeyboard = new InlineKeyboardMarkup(new[]
+        {
+            new[] { ownINLINE } ,
+            new[] { randomINLINE }
+            
         });
 
         return inlineKeyboard;
